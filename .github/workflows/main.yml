@@ -13,8 +13,9 @@ jobs:
       - name: 1. Checkout Repository
         uses: actions/checkout@v4
 
-      - name: 2. Auto-Generate Seluruh File Proyek SmartBoard Pro
+      - name: 2. Auto-Generate Seluruh File Proyek SmartBoard Pro (Fixed)
         run: |
+          rm -rf app build.gradle.kts settings.gradle.kts gradle.properties
           mkdir -p app/src/main/java/com/smartboard/pro
           mkdir -p app/src/main/res/xml
 
@@ -160,7 +161,7 @@ jobs:
           import android.provider.Settings
           import android.util.TypedValue
           import android.view.Gravity
-          import android:view.ViewGroup
+          import android.view.ViewGroup
           import android.view.inputmethod.InputMethodManager
           import android.widget.Button
           import android.widget.EditText
@@ -395,7 +396,7 @@ jobs:
                           }
                           val prefs = getSharedPreferences(SmartKeyboardService.PREFS_NAME, Context.MODE_PRIVATE)
                           val raw = prefs.getString(SmartKeyboardService.KEY_AUTOTEXT, "[]") ?: "[]"
-                          val arr = try { JSONArray(raw) } catch (_: Exception) { JSONArray() }
+                          val arr = try { JSONArray(raw) } catch (e: Exception) { JSONArray() }
                           val newArr = JSONArray()
                           newArr.put(txt)
                           for (i in 0 until arr.length()) {
@@ -424,7 +425,7 @@ jobs:
                       } else {
                           "⚠️ STATUS: SmartBoard Pro BELUM DIAKTIFKAN. Klik Tombol 1 di bawah lalu nyalakan sakelar 'SmartBoard Pro Keyboard'."
                       }
-                  } catch (_: Exception) {
+                  } catch (e: Exception) {
                       statusBadgeText.text = "ℹ️ Gunakan Tombol 1 & 2 di bawah untuk mengaktifkan SmartBoard Pro."
                   }
               }
@@ -523,6 +524,69 @@ jobs:
                   var pinned: Boolean,
                   val time: String
               )
+
+              private class MathParser(private val clean: String) {
+                  private var pos = -1
+                  private var ch = 0
+
+                  private fun nextChar() {
+                      ch = if (++pos < clean.length) clean[pos].code else -1
+                  }
+
+                  private fun eat(charToEat: Int): Boolean {
+                      while (ch == ' '.code) nextChar()
+                      if (ch == charToEat) {
+                          nextChar()
+                          return true
+                      }
+                      return false
+                  }
+
+                  fun parse(): Double {
+                      nextChar()
+                      return parseExpression()
+                  }
+
+                  private fun parseExpression(): Double {
+                      var x = parseTerm()
+                      while (true) {
+                          when {
+                              eat('+'.code) -> x += parseTerm()
+                              eat('-'.code) -> x -= parseTerm()
+                              else -> return x
+                          }
+                      }
+                  }
+
+                  private fun parseTerm(): Double {
+                      var x = parseFactor()
+                      while (true) {
+                          when {
+                              eat('*'.code) -> x *= parseFactor()
+                              eat('/'.code) -> {
+                                  val d = parseFactor()
+                                  x = if (d != 0.0) x / d else 0.0
+                              }
+                              else -> return x
+                          }
+                      }
+                  }
+
+                  private fun parseFactor(): Double {
+                      if (eat('+'.code)) return parseFactor()
+                      if (eat('-'.code)) return -parseFactor()
+                      var x = 0.0
+                      val startPos = pos
+                      if (eat('('.code)) {
+                          x = parseExpression()
+                          eat(')'.code)
+                      } else if ((ch in '0'.code..'9'.code) || ch == '.'.code) {
+                          while ((ch in '0'.code..'9'.code) || ch == '.'.code) nextChar()
+                          x = clean.substring(startPos, pos).toDoubleOrNull() ?: 0.0
+                      }
+                      return x
+                  }
+              }
 
               private val themes = listOf(
                   KeyboardTheme(
@@ -626,7 +690,7 @@ jobs:
                               addClipEntry(copiedText)
                           }
                       }
-                  } catch (_: Exception) {}
+                  } catch (e: Exception) {}
               }
 
               override fun onCreate() {
@@ -636,7 +700,7 @@ jobs:
 
                   try {
                       toneGenerator = ToneGenerator(AudioManager.STREAM_MUSIC, 75)
-                  } catch (_: Exception) {
+                  } catch (e: Exception) {
                       toneGenerator = null
                   }
 
@@ -651,7 +715,7 @@ jobs:
                       clipboardManager?.removePrimaryClipChangedListener(clipListener)
                       toneGenerator?.release()
                       ioExecutor.shutdownNow()
-                  } catch (_: Exception) {}
+                  } catch (e: Exception) {}
               }
 
               override fun onCreateInputView(): View {
@@ -695,7 +759,7 @@ jobs:
                                   )
                               )
                           }
-                      } catch (_: Exception) {}
+                      } catch (e: Exception) {}
                   }
                   if (clipList.isEmpty()) {
                       clipList.add(ClipEntry("DANA: 0812-3456-7890 a/n Admin SmartBoard", true, "Default"))
@@ -712,7 +776,7 @@ jobs:
                               val item = arr.optString(i, "")
                               if (item.isNotEmpty()) autoTextList.add(item)
                           }
-                      } catch (_: Exception) {}
+                      } catch (e: Exception) {}
                   }
                   if (autoTextList.isEmpty()) {
                       autoTextList.addAll(
@@ -1067,7 +1131,7 @@ jobs:
                               translatedResult = respData?.optString("translatedText")
                           }
                           conn.disconnect()
-                      } catch (_: Exception) {
+                      } catch (e: Exception) {
                           translatedResult = null
                       }
 
@@ -1449,69 +1513,13 @@ jobs:
               private fun evaluateCalculator(rawExpr: String): String {
                   return try {
                       val clean = rawExpr.replace("×", "*").replace("÷", "/").trim()
-                      val value = object {
-                          var pos = -1
-                          var ch = 0
-                          fun nextChar() {
-                              ch = if (++pos < clean.length) clean[pos].code else -1
-                          }
-                          fun eat(charToEat: Int): Boolean {
-                              while (ch == ' '.code) nextChar()
-                              if (ch == charToEat) {
-                                  nextChar()
-                                  return true
-                              }
-                              return false
-                          }
-                          fun parse(): Double {
-                              nextChar()
-                              return parseExpression()
-                          }
-                          fun parseExpression(): Double {
-                              var x = parseTerm()
-                              while (true) {
-                                  when {
-                                      eat('+'.code) -> x += parseTerm()
-                                      eat('-'.code) -> x -= parseTerm()
-                                      else -> return x
-                                  }
-                              }
-                          }
-                          fun parseTerm(): Double {
-                              var x = parseFactor()
-                              while (true) {
-                                  when {
-                                      eat('*'.code) -> x *= parseFactor()
-                                      eat('/'.code) -> {
-                                          val d = parseFactor()
-                                          x = if (d != 0.0) x / d else 0.0
-                                      }
-                                      else -> return x
-                                  }
-                              }
-                          }
-                          fun parseFactor(): Double {
-                              if (eat('+'.code)) return parseFactor()
-                              if (eat('-'.code)) return -parseFactor()
-                              var x = 0.0
-                              val startPos = pos
-                              if (eat('('.code)) {
-                                  x = parseExpression()
-                                  eat(')'.code)
-                              } else if ((ch in '0'.code..'9'.code) || ch == '.'.code) {
-                                  while ((ch in '0'.code..'9'.code) || ch == '.'.code) nextChar()
-                                  x = clean.substring(startPos, pos).toDoubleOrNull() ?: 0.0
-                              }
-                              return x
-                          }
-                      }.parse()
-
+                      val value = MathParser(clean).parse()
                       if (value == value.toLong().toDouble()) {
                           value.toLong().toString()
                       } else {
                           String.format(Locale.US, "%.2f", value)
                       }
-                  } catch (_: Exception) {
+                  } catch (e: Exception) {
                       calcResultPreview
                   }
               }
@@ -1569,8 +1577,8 @@ jobs:
                           "🚀", "💰", "💎", "🛒", "📦", "📱", "💻", "⭐"
                       )
                       1 -> listOf(
-                          "(≧▽≦)", "¯\\_(ツ)_/¯", "(╯°□°）╯︵ ┻━┻", "(づ｡◕‿‿◕｡)づ",
-                          "(•_•) ( •_•)>⌐■-■ (⌐■_■)", "(ಥ﹏ಥ)", "ʕ•ᴥ•ʔ", "(¬‿¬)",
+                          "(≧▽≦)", "(╯°□°）╯", "(づ｡◕‿‿◕｡)づ", "(⌐■_■)",
+                          "(•_•)", "(ಥ﹏ಥ)", "ʕ•ᴥ•ʔ", "(¬‿¬)",
                           "(☞ﾟヮﾟ)☞", "☜(ﾟヮﾟ☜)", "(ﾉ◕ヮ◕)ﾉ*:･ﾟ✧", "(っ˘ڡ˘ς)"
                       )
                       else -> listOf(
@@ -1772,7 +1780,7 @@ jobs:
                       listOf("q", "w", "e", "r", "t", "y", "u", "i", "o", "p")
                   }
                   val row2 = if (isSymbolLayer) {
-                      listOf("*", "\"", "'", ":", ";", "!", "?", "_", "=", "\\")
+                      listOf("*", "\"", "'", ":", ";", "!", "?", "_", "=", "/")
                   } else {
                       listOf("a", "s", "d", "f", "g", "h", "j", "k", "l")
                   }
@@ -2102,7 +2110,7 @@ jobs:
                               ToneGenerator.TONE_PROP_ACK
                           }
                           toneGenerator?.startTone(tone, 22)
-                      } catch (_: Exception) {}
+                      } catch (e: Exception) {}
                   }
 
                   if (vibrateEnabled) {
@@ -2113,7 +2121,7 @@ jobs:
                               @Suppress("DEPRECATION")
                               vibrator?.vibrate(14L)
                           }
-                      } catch (_: Exception) {}
+                      } catch (e: Exception) {}
                   }
               }
 
@@ -2156,11 +2164,9 @@ jobs:
         with:
           gradle-version: '8.7'
 
-      - name: 5. Generate Wrapper & Compile Debug APK
+      - name: 5. Compile Debug APK Directly
         run: |
-          gradle wrapper --gradle-version 8.7
-          chmod +x ./gradlew
-          ./gradlew assembleDebug --no-daemon --stacktrace
+          gradle assembleDebug --no-daemon --stacktrace
 
       - name: 6. Upload SmartBoard Pro APK Artifact
         uses: actions/upload-artifact@v4
